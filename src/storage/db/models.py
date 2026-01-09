@@ -315,6 +315,143 @@ class OperationLog(Base):
         }
 
 
+class Project(Base):
+    """Project table - stores project information"""
+
+    __tablename__ = "projects"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="Primary key")
+    name = Column(String(255), nullable=False, comment="Project name")
+    user_id = Column(String(64), index=True, nullable=False, comment="User ID")
+    description = Column(Text, nullable=True, comment="Project description")
+    start_date = Column(DateTime, nullable=True, comment="Project start date")
+    end_date = Column(DateTime, nullable=True, comment="Project end date")
+    status = Column(String(50), default="待启动", comment="Project status")
+    progress = Column(Integer, default=0, comment="Project progress (0-100)")
+    extra_metadata = Column(JSON, nullable=True, comment="Additional metadata")
+    is_deleted = Column(Integer, default=0, index=True, comment="Soft delete flag: 0=active, 1=deleted")
+    deleted_at = Column(DateTime, nullable=True, comment="Deletion time")
+    created_at = Column(DateTime, default=utc_now, comment="Creation time")
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, comment="Update time")
+
+    def to_dict(self):
+        def format_utc_datetime(dt_value):
+            if dt_value is None:
+                return None
+            if dt_value.tzinfo is None:
+                dt_value = dt_value.replace(tzinfo=dt.UTC)
+            return utc_isoformat(dt_value)
+
+        return {
+            "id": self.id,
+            "name": self.name,
+            "user_id": self.user_id,
+            "description": self.description,
+            "start_date": format_utc_datetime(self.start_date),
+            "end_date": format_utc_datetime(self.end_date),
+            "status": self.status,
+            "progress": self.progress,
+            "metadata": self.extra_metadata or {},
+            "is_deleted": self.is_deleted,
+            "created_at": format_utc_datetime(self.created_at),
+            "updated_at": format_utc_datetime(self.updated_at),
+        }
+
+
+class ProjectHistory(Base):
+    """Project history table - audit trail for project changes"""
+
+    __tablename__ = "project_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="Primary key")
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True, comment="Project ID")
+    field_name = Column(String(100), nullable=False, comment="Field name that was changed")
+    old_value = Column(Text, nullable=True, comment="Old value")
+    new_value = Column(Text, nullable=True, comment="New value")
+    changed_by = Column(String(64), nullable=False, comment="User ID who made the change")
+    created_at = Column(DateTime, default=utc_now, comment="Change time")
+
+
+class ProjectDeliverable(Base):
+    """Project deliverable table - stores deliverables for projects"""
+
+    __tablename__ = "project_deliverables"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="Primary key")
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True, comment="Project ID")
+    name = Column(String(255), nullable=False, comment="Deliverable name")
+    quantity = Column(Integer, default=0, comment="Quantity")
+    word_count = Column(Integer, default=0, comment="Word count")
+    status = Column(String(50), default="未撰写", comment="Status: 未撰写/已撰写/etc.")
+    extra_metadata = Column(JSON, nullable=True, comment="Additional metadata")
+    is_deleted = Column(Integer, default=0, index=True, comment="Soft delete flag: 0=active, 1=deleted")
+    deleted_at = Column(DateTime, nullable=True, comment="Deletion time")
+    created_at = Column(DateTime, default=utc_now, comment="Creation time")
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, comment="Update time")
+
+    # Relationships
+    content_detail = relationship(
+        "ProjectDeliverableContent",
+        back_populates="deliverable",
+        uselist=False,
+        cascade="all, delete-orphan",
+        foreign_keys="ProjectDeliverableContent.deliverable_id"
+    )
+
+    @property
+    def is_exportable(self):
+        """Check if deliverable can be exported"""
+        return (
+            self.content_detail is not None
+            and self.content_detail.content is not None
+            and len(self.content_detail.content.strip()) > 0
+        )
+
+    def to_dict(self):
+        def format_utc_datetime(dt_value):
+            if dt_value is None:
+                return None
+            if dt_value.tzinfo is None:
+                dt_value = dt_value.replace(tzinfo=dt.UTC)
+            return utc_isoformat(dt_value)
+
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "name": self.name,
+            "quantity": self.quantity,
+            "word_count": self.word_count,
+            "status": self.status,
+            "metadata": self.extra_metadata or {},
+            "can_download": self.is_exportable,
+            "is_deleted": self.is_deleted,
+            "created_at": format_utc_datetime(self.created_at),
+            "updated_at": format_utc_datetime(self.updated_at),
+        }
+
+
+class ProjectDeliverableContent(Base):
+    """Project deliverable content table - stores content for deliverables"""
+
+    __tablename__ = "project_deliverable_content"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="Primary key")
+    deliverable_id = Column(
+        Integer,
+        ForeignKey("project_deliverables.id"),
+        nullable=False,
+        unique=True,
+        index=True,
+        comment="Deliverable ID"
+    )
+    content = Column(Text, nullable=True, comment="Deliverable content")
+    created_at = Column(DateTime, default=utc_now, comment="Creation time")
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, comment="Update time")
+
+    # Relationships
+    deliverable = relationship("ProjectDeliverable", back_populates="content_detail")
+
+
 class MessageFeedback(Base):
     """Message feedback table - stores user feedback on AI responses"""
 

@@ -8,7 +8,12 @@ from langchain.agents.middleware import ModelRequest, SummarizationMiddleware, T
 from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
 
 from src.agents.common import BaseAgent, load_chat_model
-from src.agents.common.middlewares import context_based_model, inject_attachment_context
+from src.agents.common.middlewares import (
+    context_based_model,
+    inject_attachment_context,
+    logging_middleware,
+    token_trimming_middleware,
+)
 from src.agents.common.tools import search
 
 from .prompts import DEEP_PROMPT
@@ -74,7 +79,7 @@ class DeepAgent(BaseAgent):
         tools = search_tools
         return tools
 
-    async def get_graph(self, **kwargs):
+    async def get_graph(self, input_context=None, **kwargs):
         """构建 Deep Agent 的图"""
         if self.graph:
             return self.graph
@@ -105,6 +110,8 @@ class DeepAgent(BaseAgent):
                 context_based_model,  # 动态模型选择
                 context_aware_prompt,  # 动态系统提示词
                 inject_attachment_context,  # 附件上下文注入
+                token_trimming_middleware,
+                logging_middleware,  # 日志中间件
                 TodoListMiddleware(),
                 FilesystemMiddleware(),
                 SubAgentMiddleware(

@@ -3,10 +3,12 @@ import AppLayout from '@/layouts/AppLayout.vue';
 import BlankLayout from '@/layouts/BlankLayout.vue';
 import { useUserStore } from '@/stores/user';
 import { useAgentStore } from '@/stores/agent';
+import projectRoutes from './project-router';
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
+    ...projectRoutes,
     {
       path: '/',
       name: 'main',
@@ -132,6 +134,12 @@ router.beforeEach(async (to, from, next) => {
 
   // 如果路由需要管理员权限但用户不是管理员
   if (requiresAdmin && !isAdmin) {
+    // 如果是交付物生成页面，不要在这里初始化通用智能体，直接跳转
+    if (to.name === 'DocumentGenerator' || to.name === 'ProjectDemoGenerate' || to.path.includes('/generate')) {
+      next('/'); // 或者其他合适的逻辑
+      return;
+    }
+
     // 如果是普通用户，跳转到默认智能体页面
     try {
       const agentStore = useAgentStore();

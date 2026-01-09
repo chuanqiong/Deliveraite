@@ -226,11 +226,7 @@ export const fileApi = {
       ? `/api/knowledge/files/upload?db_id=${dbId}`
       : '/api/knowledge/files/upload'
 
-    return apiAdminPost(url, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data'
-      }
-    })
+    return apiAdminPost(url, formData)
   },
 
   /**

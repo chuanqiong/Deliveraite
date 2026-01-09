@@ -49,6 +49,43 @@ class BaseContext:
         metadata={"name": "智能体模型", "options": [], "description": "智能体的驱动模型"},
     )
 
+    temperature: Annotated[
+        float,
+        {"__template_metadata__": {"kind": "float", "min": 0.0, "max": 2.0}},
+    ] = field(
+        default=0.7,
+        metadata={
+            "name": "温度参数",
+            "description": "控制生成的随机性和创造性。0=确定性输出，1=高度随机，>1=更创造性",
+        },
+    )
+
+    top_p: Annotated[
+        float, {"__template_metadata__": {"kind": "float", "min": 0.0, "max": 1.0}}
+    ] = field(
+        default=0.9,
+        metadata={
+            "name": "核采样参数（Top-P）",
+            "description": "控制生成多样性。只考虑累积概率达到 p 的 tokens",
+        },
+    )
+
+    enable_thinking: bool = field(
+        default=False,
+        metadata={
+            "name": "启用深度思考模式",
+            "description": "是否启用模型的深度思考能力（适用于支持thinking的模型）",
+        },
+    )
+
+    enable_search: bool = field(
+        default=False,
+        metadata={
+            "name": "启用联网搜索",
+            "description": "是否启用模型的联网搜索能力，获取最新信息（适用于支持search的模型）",
+        },
+    )
+
     @classmethod
     def from_file(cls, module_name: str, input_context: dict = None) -> "BaseContext":
         """Load configuration from a YAML file. 用于持久化配置"""

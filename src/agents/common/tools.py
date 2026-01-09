@@ -1,4 +1,5 @@
 import asyncio
+import time
 import traceback
 from typing import Annotated, Any
 
@@ -11,11 +12,37 @@ from pydantic import BaseModel, Field
 from src import config, graph_base, knowledge_base
 from src.utils import logger
 
+
+# 知识库检索缓存
+_kb_cache: dict[tuple[str, str, str], tuple[Any, float]] = {}
+_CACHE_TTL = 300  # 缓存有效期：5分钟
+
+
+def _get_cached_result(db_id: str, query_text: str, operation: str) -> Any | None:
+    """从缓存中获取检索结果"""
+    cache_key = (db_id, query_text, operation)
+    if cache_key in _kb_cache:
+        result, timestamp = _kb_cache[cache_key]
+        if time.time() - timestamp < _CACHE_TTL:
+            logger.debug(f"Cache hit for {db_id} query: {query_text[:50]}...")
+            return result
+        else:
+            # 缓存过期，移除
+            del _kb_cache[cache_key]
+    return None
+
+
+def _set_cached_result(db_id: str, query_text: str, operation: str, result: Any) -> None:
+    """将检索结果存入缓存"""
+    cache_key = (db_id, query_text, operation)
+    _kb_cache[cache_key] = (result, time.time())
+    logger.debug(f"Cached result for {db_id} query: {query_text[:50]}...")
+
 search = TavilySearch(max_results=10)
 search.metadata = {"name": "Tavily 网页搜索"}
 
 
-@tool(name_or_callable="计算器", description="可以对给定的2个数字选择进行 add, subtract, multiply, divide 运算")
+@tool(name_or_callable="calculator", description="可以对给定的2个数字选择进行 add, subtract, multiply, divide 运算")
 def calculator(a: float, b: float, operation: str) -> float:
     try:
         if operation == "add":
@@ -35,7 +62,7 @@ def calculator(a: float, b: float, operation: str) -> float:
         raise
 
 
-@tool(name_or_callable="人工审批工具(Debug)", description="请求人工审批工具，用于在执行重要操作前获得人类确认。")
+@tool(name_or_callable="get_approved_user_goal", description="请求人工审批工具，用于在执行重要操作前获得人类确认。")
 def get_approved_user_goal(
     operation_description: str,
 ) -> dict:
@@ -79,7 +106,7 @@ KG_QUERY_DESCRIPTION = """
 """
 
 
-@tool(name_or_callable="查询知识图谱", description=KG_QUERY_DESCRIPTION)
+@tool(name_or_callable="query_knowledge_graph", description=KG_QUERY_DESCRIPTION)
 def query_knowledge_graph(query: Annotated[str, "The keyword to query knowledge graph."]) -> Any:
     """使用这个工具可以查询知识图谱中包含的三元组信息。关键词（query），使用可能帮助回答这个问题的关键词进行查询，不要直接使用用户的原始输入去查询。"""
     try:
@@ -134,6 +161,11 @@ def get_kb_based_tools() -> list:
         async def async_retriever_wrapper(query_text: str, operation: str = "search") -> Any:
             """异步检索器包装函数，支持检索和获取思维导图"""
 
+            # 检查缓存
+            cached_result = _get_cached_result(db_id, query_text, operation)
+            if cached_result is not None:
+                return cached_result
+
             # 获取思维导图
             if operation == "get_mindmap":
                 try:
@@ -141,13 +173,17 @@ def get_kb_based_tools() -> list:
 
                     # 从知识库元数据中获取思维导图
                     if db_id not in knowledge_base.global_databases_meta:
-                        return f"知识库 {retriever_info['name']} 不存在"
+                        result = f"知识库 {retriever_info['name']} 不存在"
+                        _set_cached_result(db_id, query_text, operation, result)
+                        return result
 
                     db_meta = knowledge_base.global_databases_meta[db_id]
                     mindmap_data = db_meta.get("mindmap")
 
                     if not mindmap_data:
-                        return f"知识库 {retriever_info['name']} 还没有生成思维导图。"
+                        result = f"知识库 {retriever_info['name']} 还没有生成思维导图。"
+                        _set_cached_result(db_id, query_text, operation, result)
+                        return result
 
                     # 将思维导图数据转换为文本格式，便于AI理解
                     def mindmap_to_text(node, level=0):
@@ -162,11 +198,14 @@ def get_kb_based_tools() -> list:
                     mindmap_text += mindmap_to_text(mindmap_data)
 
                     logger.debug(f"Successfully retrieved mindmap for {db_id}")
+                    _set_cached_result(db_id, query_text, operation, mindmap_text)
                     return mindmap_text
 
                 except Exception as e:
                     logger.error(f"Error getting mindmap for {db_id}: {e}")
-                    return f"获取思维导图失败: {str(e)}"
+                    result = f"获取思维导图失败: {str(e)}"
+                    _set_cached_result(db_id, query_text, operation, result)
+                    return result
 
             # 默认：检索知识库
             retriever = retriever_info["retriever"]
@@ -177,10 +216,14 @@ def get_kb_based_tools() -> list:
                 else:
                     result = retriever(query_text)
                 logger.debug(f"Retrieved {len(result) if isinstance(result, list) else 'N/A'} results from {db_id}")
+                # 存入缓存
+                _set_cached_result(db_id, query_text, operation, result)
                 return result
             except Exception as e:
                 logger.error(f"Error in retriever {db_id}: {e}")
-                return f"检索失败: {str(e)}"
+                result = f"检索失败: {str(e)}"
+                _set_cached_result(db_id, query_text, operation, result)
+                return result
 
         return async_retriever_wrapper
 
@@ -201,8 +244,12 @@ def get_kb_based_tools() -> list:
             # 使用工厂函数创建检索器包装函数，避免闭包问题
             retriever_wrapper = _create_retriever_wrapper(db_id, retrieve_info)
 
-            safename = retrieve_info["name"].replace(" ", "_")[:20]
-
+            # 移除所有非字母数字下划线的字符
+            import re
+            safename = re.sub(r'[^a-zA-Z0-9_-]', '_', retrieve_info["name"])[:64]
+            if not safename or not safename[0].isalpha():
+                safename = f"KB_{db_id[:10]}"
+            
             # 使用 StructuredTool.from_function 创建异步工具
             tool = StructuredTool.from_function(
                 coroutine=retriever_wrapper,

@@ -422,20 +422,29 @@ class ConversationManager:
 
         return stats
 
-    async def get_tool_call_by_langgraph_id(self, langgraph_tool_call_id: str) -> ToolCall | None:
+    async def get_tool_call_by_langgraph_id(
+        self, langgraph_tool_call_id: str, thread_id: str | None = None
+    ) -> ToolCall | None:
         """
         Get tool call by LangGraph tool_call_id
 
         Args:
             langgraph_tool_call_id: LangGraph tool_call_id
+            thread_id: Optional thread ID to narrow down the search
 
         Returns:
             ToolCall object or None if not found
         """
-        result = await self.db.execute(
-            select(ToolCall).filter(ToolCall.langgraph_tool_call_id == langgraph_tool_call_id)
-        )
-        return result.scalar_one_or_none()
+        query = select(ToolCall).filter(ToolCall.langgraph_tool_call_id == langgraph_tool_call_id)
+
+        if thread_id:
+            query = query.join(Message).join(Conversation).filter(Conversation.thread_id == thread_id)
+
+        # Order by created_at desc to get the most recent one if multiple exist
+        query = query.order_by(ToolCall.created_at.desc())
+
+        result = await self.db.execute(query)
+        return result.scalars().first()
 
     async def update_tool_call_output(
         self,
@@ -443,6 +452,7 @@ class ConversationManager:
         tool_output: str,
         status: str = "success",
         error_message: str | None = None,
+        thread_id: str | None = None,
     ) -> ToolCall | None:
         """
         Update tool call output by LangGraph tool_call_id
@@ -452,11 +462,12 @@ class ConversationManager:
             tool_output: Tool execution result
             status: Status (success/error)
             error_message: Error message if failed
+            thread_id: Optional thread ID to narrow down the search
 
         Returns:
             Updated ToolCall object or None if not found
         """
-        tool_call = await self.get_tool_call_by_langgraph_id(langgraph_tool_call_id)
+        tool_call = await self.get_tool_call_by_langgraph_id(langgraph_tool_call_id, thread_id=thread_id)
         if not tool_call:
             logger.warning(f"Tool call not found for langgraph_tool_call_id: {langgraph_tool_call_id}")
             return None

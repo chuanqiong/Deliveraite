@@ -1,5 +1,6 @@
 import { apiGet, apiPost, apiDelete, apiPut, apiAdminGet, apiAdminPost, apiRequest } from './base'
 import { useUserStore } from '@/stores/user'
+import { getTraceId } from '@/utils/logger'
 
 /**
  * 智能体API模块
@@ -22,9 +23,11 @@ export const agentApi = {
    */
   sendAgentMessage: (agentId, data, options = {}) => {
     const { signal, headers: extraHeaders, ...restOptions } = options || {};
+    const traceId = getTraceId();
     const baseHeaders = {
       'Content-Type': 'application/json',
-      ...useUserStore().getAuthHeaders()
+      ...useUserStore().getAuthHeaders(),
+      ...(traceId ? { 'X-Trace-Id': traceId } : {})
     };
 
     return fetch(`/api/chat/agent/${agentId}`, {

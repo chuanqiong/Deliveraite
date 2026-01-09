@@ -2,7 +2,12 @@ from langchain.agents import create_agent
 
 from src import config
 from src.agents.common import BaseAgent, get_mcp_tools, load_chat_model
-from src.agents.common.middlewares import context_aware_prompt, context_based_model
+from src.agents.common.middlewares import (
+    context_aware_prompt,
+    context_based_model,
+    logging_middleware,
+    token_trimming_middleware,
+)
 from src.agents.common.toolkits.mysql import get_mysql_tools
 from src.utils import logger
 
@@ -21,7 +26,7 @@ class SqlReporterAgent(BaseAgent):
         mysql_tools = get_mysql_tools()
         return chart_tools + mysql_tools
 
-    async def get_graph(self, **kwargs):
+    async def get_graph(self, input_context=None, **kwargs):
         if self.graph:
             return self.graph
 
@@ -29,7 +34,12 @@ class SqlReporterAgent(BaseAgent):
         graph = create_agent(
             model=load_chat_model(config.default_model),  # 默认模型，会被 middleware 覆盖
             tools=await self.get_tools(),
-            middleware=[context_aware_prompt, context_based_model],
+            middleware=[
+                context_aware_prompt,
+                context_based_model,
+                token_trimming_middleware,
+                logging_middleware,
+            ],
             checkpointer=await self._get_checkpointer(),
         )
 

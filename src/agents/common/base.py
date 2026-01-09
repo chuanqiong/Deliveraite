@@ -61,19 +61,32 @@ class BaseAgent:
         return self.context_schema.from_file(module_name=self.module_name)
 
     async def stream_values(self, messages: list[str], input_context=None, **kwargs):
-        graph = await self.get_graph()
+        graph = await self.get_graph(input_context=input_context)
         context = self.context_schema.from_file(module_name=self.module_name, input_context=input_context)
-        for event in graph.astream({"messages": messages}, stream_mode="values", context=context):
+        
+        # 注入智能体名称到 configurable，便于日志中间件识别
+        input_config = {"configurable": input_context or {}, "recursion_limit": 100}
+        if "agent_name" not in input_config["configurable"]:
+            input_config["configurable"]["agent_name"] = self.name
+
+        for event in graph.astream({"messages": messages}, stream_mode="values", context=context, config=input_config):
             yield event["messages"]
 
     async def stream_messages(self, messages: list[str], input_context=None, **kwargs):
-        graph = await self.get_graph()
+        graph = await self.get_graph(input_context=input_context)
         context = self.context_schema.from_file(module_name=self.module_name, input_context=input_context)
         logger.debug(f"stream_messages: {context}")
         # TODO Checkpointer 似乎还没有适配最新的 1.0 Context API
 
         # 从 input_context 中提取 attachments（如果有）
         attachments = (input_context or {}).get("attachments", [])
+        
+        # 注入智能体名称到 configurable，便于日志中间件识别
+        if input_context is None:
+            input_context = {}
+        if "agent_name" not in input_context:
+            input_context["agent_name"] = self.name
+            
         input_config = {"configurable": input_context, "recursion_limit": 300}
 
         async for msg, metadata in graph.astream(
@@ -85,12 +98,19 @@ class BaseAgent:
             yield msg, metadata
 
     async def invoke_messages(self, messages: list[str], input_context=None, **kwargs):
-        graph = await self.get_graph()
+        graph = await self.get_graph(input_context=input_context)
         context = self.context_schema.from_file(module_name=self.module_name, input_context=input_context)
         logger.debug(f"invoke_messages: {context}")
 
         # 从 input_context 中提取 attachments（如果有）
         attachments = (input_context or {}).get("attachments", [])
+        
+        # 注入智能体名称到 configurable，便于日志中间件识别
+        if input_context is None:
+            input_context = {}
+        if "agent_name" not in input_context:
+            input_context["agent_name"] = self.name
+            
         input_config = {"configurable": input_context, "recursion_limit": 100}
 
         msg = await graph.ainvoke(
@@ -133,11 +153,15 @@ class BaseAgent:
             return []
 
     @abstractmethod
-    async def get_graph(self, **kwargs) -> CompiledStateGraph:
+    async def get_graph(self, input_context=None, **kwargs) -> CompiledStateGraph:
         """
         获取并编译对话图实例。
         必须确保在编译时设置 checkpointer，否则将无法获取历史记录。
         例如: graph = workflow.compile(checkpointer=sqlite_checkpointer)
+
+        Args:
+            input_context: 运行时传入的上下文信息，可用于初始化时的场景检测
+            **kwargs: 其他参数
         """
         pass
 

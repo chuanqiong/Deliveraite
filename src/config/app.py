@@ -47,15 +47,17 @@ class Config(BaseModel):
     # 模型配置
     # ============================================================
     default_model: str = Field(
-        default="siliconflow/deepseek-ai/DeepSeek-V3.2",
+        default="iflow/deepseek-v3.2",
+        # default="deepseek/deepseek-chat",
         description="默认对话模型",
     )
     fast_model: str = Field(
-        default="siliconflow/THUDM/GLM-4-9B-0414",
+        default="iflow/deepseek-v3.2",
+        # default="deepseek/deepseek-chat",
         description="快速响应模型",
     )
     embed_model: str = Field(
-        default="siliconflow/BAAI/bge-m3",
+        default="modelscope/Qwen/Qwen3-Embedding-8B",
         description="Embedding 模型",
     )
     reranker: str = Field(

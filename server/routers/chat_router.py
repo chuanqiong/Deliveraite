@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import traceback
 import uuid
 
@@ -11,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from src.storage.db.models import User, MessageFeedback, Message, Conversation
+from src.storage.db.models import User, MessageFeedback, Message, Conversation, ProjectDeliverable, ProjectDeliverableContent, Project
 from src.storage.conversation import ConversationManager
 from src.storage.db.manager import db_manager
 from server.routers.auth_router import get_admin_user
@@ -27,7 +28,7 @@ from src.services.doc_converter import (
     MAX_ATTACHMENT_SIZE_BYTES,
     convert_upload_to_markdown,
 )
-from src.utils.datetime_utils import utc_isoformat
+from src.utils.datetime_utils import utc_now, utc_isoformat
 from src.utils.logging_config import logger
 from src.utils.image_processor import process_uploaded_image
 
@@ -127,6 +128,12 @@ def _extract_agent_state(values: dict) -> dict:
     result = {}
     result["todos"] = _norm_list(values.get("todos"))[:20]
     result["files"] = _norm_list(values.get("files"))[:50]
+    
+    # 交付物智能体特有状态
+    if "documentStructure" in values:
+        result["documentStructure"] = values["documentStructure"]
+    elif "document_structure" in values:
+        result["documentStructure"] = values["document_structure"]
 
     return result
 
@@ -137,8 +144,8 @@ async def _get_existing_message_ids(conv_mgr, thread_id):
     return {msg.extra_metadata["id"] for msg in existing_messages if msg.extra_metadata and "id" in msg.extra_metadata}
 
 
-async def _save_ai_message(conv_mgr, thread_id, msg_dict):
-    """保存AI消息和相关的工具调用"""
+async def _save_ai_message(conv_mgr, thread_id, msg_dict, config_dict=None):
+    """保存AI message和相关的工具调用"""
     content = msg_dict.get("content", "")
     tool_calls_data = msg_dict.get("tool_calls", [])
 
@@ -150,6 +157,14 @@ async def _save_ai_message(conv_mgr, thread_id, msg_dict):
         message_type="text",
         extra_metadata=msg_dict,
     )
+
+    if not ai_msg:
+        logger.error(f"Failed to save AI message for thread_id {thread_id}: conversation not found")
+        return
+
+    # === 额外的持久化操作：处理 AI 回复中可能包含的大纲内容或章节正文 ===
+    if config_dict:
+        await _process_ai_extra_content(conv_mgr, thread_id, ai_msg, content, config_dict)
 
     # 保存工具调用
     if tool_calls_data:
@@ -166,8 +181,8 @@ async def _save_ai_message(conv_mgr, thread_id, msg_dict):
     logger.debug(f"Saved AI message {ai_msg.id} with {len(tool_calls_data)} tool calls")
 
 
-async def _save_tool_message(conv_mgr, msg_dict):
-    """保存工具执行结果"""
+async def _save_tool_message(conv_mgr, thread_id, msg_dict, config_dict=None):
+    """保存工具执行结果，并根据工具类型执行额外的持久化操作"""
     tool_call_id = msg_dict.get("tool_call_id")
     content = msg_dict.get("content", "")
     name = msg_dict.get("name", "")
@@ -181,17 +196,208 @@ async def _save_tool_message(conv_mgr, msg_dict):
     else:
         tool_output = str(content)
 
+    # 保存工具响应为 Message 记录
+    await conv_mgr.add_message_by_thread_id(
+        thread_id=thread_id,
+        role="tool",
+        content=tool_output,
+        message_type="tool_result",
+        extra_metadata=msg_dict,
+    )
+
     # 更新工具调用结果
     updated_tc = await conv_mgr.update_tool_call_output(
         langgraph_tool_call_id=tool_call_id,
         tool_output=tool_output,
         status="success",
+        thread_id=thread_id,
     )
 
     if updated_tc:
         logger.debug(f"Updated tool_call {tool_call_id} ({name}) with output")
     else:
         logger.warning(f"Tool call {tool_call_id} not found for update")
+
+    # === 额外的持久化操作：交付物生成相关 ===
+    allowed_tools = [
+        "generate_section_content", 
+        "update_section_content", 
+        "batch_generate_sections",
+        "ai_section_generation",
+        "ai_outline_generation"
+    ]
+    if config_dict and name in allowed_tools:
+        logger.info(f"[Deliverable Persistence] Starting extra persistence for tool: {name}, thread_id: {thread_id}")
+        try:
+            configurable = config_dict.get("configurable", {})
+            deliverable_id = configurable.get("deliverableId")
+            
+            if not deliverable_id:
+                logger.warning(f"[Deliverable Persistence] No deliverableId found in config for tool {name}. Config: {config_dict}")
+                return
+            
+            # 尝试转换为整数
+            try:
+                deliverable_id_int = int(deliverable_id)
+            except (ValueError, TypeError):
+                logger.error(f"[Deliverable Persistence] Invalid deliverableId type/value: {deliverable_id}")
+                return
+
+            # 解析工具输出
+            try:
+                if isinstance(content, str):
+                    try:
+                        output_data = json.loads(content)
+                    except json.JSONDecodeError:
+                        # 如果是 ai_section_generation 且内容不是 JSON，则视为纯文本
+                        if name == "ai_section_generation":
+                            output_data = {"content": content}
+                        else:
+                            raise
+                else:
+                    output_data = content
+                
+                logger.debug(f"[Deliverable Persistence] Parsed tool output for {name}: operation={output_data.get('operation') if isinstance(output_data, dict) else 'N/A'}")
+            except Exception as e:
+                logger.error(f"[Deliverable Persistence] Failed to parse tool output for {name}: {e}")
+                return
+
+            # 获取生成的文字内容
+            new_content = ""
+            # 调试日志：记录 output_data 类型
+            logger.debug(f"[Deliverable Persistence] Processing tool {name} output_data type: {type(output_data)}")
+            
+            if name == "batch_generate_sections":
+                # 批量生成，合并所有成功章节的内容
+                results = output_data.get("results", [])
+                section_contents = []
+                for res in results:
+                    if res.get("operation") in ["content_generated", "content_updated"] and res.get("content"):
+                        section_contents.append(res.get("content"))
+                new_content = "\n\n".join(section_contents)
+                logger.info(f"[Deliverable Persistence] Batch generated {len(section_contents)} sections, total length: {len(new_content)}")
+            elif name == "ai_outline_generation":
+                # 大纲生成时提取的内容
+                new_content = output_data.get("content", "")
+                logger.info(f"[Deliverable Persistence] Outline generated, length: {len(new_content)}")
+            elif name == "ai_section_generation":
+                # 针对 ai_section_generation 的特殊处理
+                new_content = output_data.get("content", "")
+                # 如果 output_data 中没有 content，尝试从 text 中获取
+                if not new_content and output_data.get("text"):
+                    new_content = output_data.get("text")
+                
+                if not new_content:
+                    logger.warning(f"[Deliverable Persistence] No content found in output_data for ai_section_generation: {output_data}")
+                else:
+                    logger.info(f"[Deliverable Persistence] AI section generated, length: {len(new_content)}")
+            else:
+                # 单个章节生成
+                if output_data.get("operation") in ["content_generated", "content_updated"]:
+                    new_content = output_data.get("content", "")
+                    logger.info(f"[Deliverable Persistence] Single section generated, length: {len(new_content)}")
+                
+            if not new_content:
+                logger.info(f"[Deliverable Persistence] No new content generated by tool {name} or operation mismatch: {output_data.get('operation') if isinstance(output_data, dict) else 'N/A'}")
+                return
+
+            logger.info(f"[Deliverable Persistence] Updating database for deliverable {deliverable_id_int}, content length: {len(new_content)}")
+            logger.info(f"[Deliverable Persistence] FULL CONTENT TO BE SAVED:\n{new_content}\n[End of Full Content]")
+
+            # 更新数据库
+            db = conv_mgr.db
+            # 查询交付物
+            query = select(ProjectDeliverable).where(ProjectDeliverable.id == deliverable_id_int)
+            from sqlalchemy.orm import selectinload
+            query = query.options(selectinload(ProjectDeliverable.content_detail))
+            result = await db.execute(query)
+            deliverable = result.scalar_one_or_none()
+
+            if deliverable:
+                logger.debug(f"[Deliverable Persistence] Found deliverable {deliverable_id_int}, current status: {deliverable.status}")
+                # 更新内容
+                if not deliverable.content_detail:
+                    logger.info(f"[Deliverable Persistence] Creating NEW content detail for deliverable {deliverable_id_int}")
+                    deliverable.content_detail = ProjectDeliverableContent(
+                        deliverable_id=deliverable.id,
+                        content=new_content
+                    )
+                    db.add(deliverable.content_detail)
+                else:
+                    logger.info(f"[Deliverable Persistence] Updating EXISTING content detail for deliverable {deliverable_id_int}")
+                    # 如果是 update_section_content 且 mode 是 append/prepend，可能需要处理合并
+                    current_content = deliverable.content_detail.content or ""
+                    
+                    mode = output_data.get("mode", "replace")
+                    logger.debug(f"[Deliverable Persistence] Update mode: {mode}, current content length: {len(current_content)}")
+                    
+                    if not new_content or new_content.strip() == "":
+                        logger.warning(f"[Deliverable Persistence] New content is empty, skipping update to avoid clearing database")
+                    else:
+                        # 严重 BUG 修复：防止 AI 生成过程中或前端旧数据覆盖新内容
+                        # 仅在 replace 模式下执行长度保护
+                        if mode == "replace" and current_content:
+                            current_len = len(current_content)
+                            new_len = len(new_content)
+                            
+                            # 保护策略 1：长度保护
+                            # 如果当前数据库内容已经很长（>500字），且新内容长度缩水超过 30%，则可能是异常覆盖
+                            if current_len > 500 and new_len < current_len * 0.7:
+                                logger.warning(f"[Deliverable Persistence] Potential content loss detected! Current len: {current_len}, New len: {new_len}. Refusing to overwrite with shorter content.")
+                                return True # 视为处理成功但不执行覆盖
+
+                        if mode == "append":
+                            deliverable.content_detail.content = current_content + "\n\n" + new_content
+                        elif mode == "prepend":
+                            deliverable.content_detail.content = new_content + "\n\n" + current_content
+                        else:
+                            # 默认 replace
+                            deliverable.content_detail.content = new_content
+                        
+                        deliverable.content_detail.updated_at = utc_now()
+                
+                # 如果工具返回了新的标题，更新章节标题
+                new_title = output_data.get("section_title")
+                if new_title:
+                    # 去掉 Markdown 标题前缀（如 "## " 或 "### "）
+                    clean_title = re.sub(r'^#+\s*', '', new_title).strip()
+                    
+                    if name == "ai_outline_generation" and clean_title and deliverable.name != clean_title:
+                        logger.info(f"[Deliverable Persistence] Updating deliverable name from '{deliverable.name}' to '{clean_title}'")
+                        deliverable.name = clean_title
+                    else:
+                        logger.debug(f"[Deliverable Persistence] Skipping deliverable name update for tool {name} with title '{clean_title}'")
+                
+                # 更新交付物状态
+                if deliverable.status == "未撰写":
+                    logger.info(f"[Deliverable Persistence] Updating status from '未撰写' to '已撰写' for deliverable {deliverable_id_int}")
+                    deliverable.status = "已撰写"
+                deliverable.updated_at = utc_now()
+                
+                # 更新关联项目的更新时间
+                if deliverable.project_id:
+                    logger.debug(f"[Deliverable Persistence] Updating project {deliverable.project_id} update time")
+                    from sqlalchemy import update
+                    await db.execute(
+                        update(Project)
+                        .where(Project.id == deliverable.project_id)
+                        .values(updated_at=utc_now())
+                    )
+                
+                logger.info(f"[Deliverable Persistence] Committing changes to database for deliverable {deliverable_id_int}")
+                await db.commit()
+                logger.info(f"[Deliverable Persistence] Successfully saved deliverable content for ID {deliverable_id_int} from tool {name}")
+            else:
+                logger.warning(f"[Deliverable Persistence] Deliverable {deliverable_id_int} NOT FOUND in database during persistence attempt")
+
+        except Exception as e:
+            logger.error(f"Error persisting deliverable content: {e}")
+            logger.error(traceback.format_exc())
+            if 'db' in locals():
+                await db.rollback()
+    else:
+        # 如果不满足额外持久化条件（如没有 config_dict），也需要结束 try 块
+        pass
 
 
 async def _require_user_conversation(conv_mgr: ConversationManager, thread_id: str, user_id: str) -> Conversation:
@@ -255,6 +461,131 @@ async def save_partial_message(conv_mgr, thread_id, full_msg=None, error_message
         return None
 
 
+async def _process_ai_extra_content(conv_mgr, thread_id, ai_msg, content, config_dict):
+    """处理 AI 回复中可能包含的大纲 JSON 或是生成的章节正文"""
+    if not content or not config_dict:
+        return
+
+    try:
+        configurable = config_dict.get("configurable", {})
+        deliverable_id = configurable.get("deliverableId")
+        if not deliverable_id:
+            return
+
+        # 检查是否已经有工具调用在处理内容，避免重复保存
+        msg_dict = ai_msg.extra_metadata or {}
+        tool_calls = msg_dict.get("tool_calls", [])
+        if tool_calls:
+            content_tool_names = ["generate_section_content", "update_section_content", "batch_generate_sections", "ai_section_generation"]
+            if any(tc.get("name") in content_tool_names for tc in tool_calls):
+                logger.debug(f"[Deliverable Persistence] AI message has content tools ({[tc.get('name') for tc in tool_calls]}), skipping extra processing")
+                return
+
+        # 匹配 <content> 标签中的内容
+        content_match = re.search(r'<content>([\s\S]*?)<\/content>', content)
+        
+        inner_content = ""
+        if content_match:
+            inner_content = content_match.group(1).strip()
+            
+        # 1. 尝试从中找到 JSON 数组（大纲场景）
+        json_str = ""
+        if inner_content:
+            array_match = re.search(r'\[\s*\{[\s\S]*\}\s*\]', inner_content)
+            if array_match:
+                json_str = array_match.group(0).strip()
+        
+        if not json_str:
+            # 尝试直接在全文中找 JSON 数组
+            array_match = re.search(r'\[\s*\{[\s\S]*\}\s*\]', content)
+            if array_match:
+                json_str = array_match.group(0).strip()
+
+        # 2. 如果找到了 JSON 数组，处理大纲逻辑
+        if json_str:
+            try:
+                outline_data = json.loads(json_str)
+                if isinstance(outline_data, list):
+                    # 提取所有包含 content 且不为空的章节
+                    all_contents = []
+                    
+                    def _extract_contents(items):
+                        for item in items:
+                            if item.get("content"):
+                                all_contents.append(item.get("content"))
+                            if item.get("children"):
+                                _extract_contents(item.get("children"))
+                    
+                    _extract_contents(outline_data)
+                    
+                    # 保存大纲结构到数据库
+                    try:
+                        from src.storage.db.models import ProjectDeliverable
+                        from sqlalchemy.orm.attributes import flag_modified
+                        from sqlalchemy import select
+                        
+                        deliverable_query = select(ProjectDeliverable).where(ProjectDeliverable.id == int(deliverable_id))
+                        deliverable_result = await conv_mgr.db.execute(deliverable_query)
+                        deliverable = deliverable_result.scalar_one_or_none()
+                        
+                        if deliverable:
+                            if not deliverable.extra_metadata:
+                                deliverable.extra_metadata = {}
+                            
+                            def _clean_outline(items):
+                                cleaned = []
+                                for item in items:
+                                    c_item = {k: v for k, v in item.items() if k != "content"}
+                                    if "children" in c_item and c_item["children"]:
+                                        c_item["children"] = _clean_outline(c_item["children"])
+                                    cleaned.append(c_item)
+                                return cleaned
+                            
+                            cleaned_outline = _clean_outline(outline_data)
+                            deliverable.extra_metadata["outline"] = cleaned_outline
+                            flag_modified(deliverable, "extra_metadata")
+                            await conv_mgr.db.commit()
+                            logger.info(f"Successfully saved outline structure to deliverable {deliverable_id}")
+                    except Exception as db_err:
+                        logger.error(f"Failed to save outline to DB: {db_err}")
+                    
+                    if all_contents:
+                        combined_content = "\n\n".join(all_contents)
+                        logger.info(f"Extracted {len(all_contents)} sections with content from AI outline")
+                        
+                        pseudo_msg = {
+                            "name": "ai_outline_generation",
+                            "content": json.dumps({
+                                "operation": "content_generated",
+                                "content": combined_content
+                            }),
+                            "tool_call_id": f"ai_outline_{ai_msg.id}"
+                        }
+                        await _save_tool_message(conv_mgr, thread_id, pseudo_msg, config_dict)
+                    return # 处理完大纲后返回
+            except:
+                pass # 解析失败则继续尝试正文逻辑
+
+        # 3. 如果没有 JSON 数组，但有 <content> 且内容较长，处理章节正文逻辑（初稿/润色场景）
+        if inner_content and len(inner_content) > 100:
+            logger.info(f"Detected plain text content in <content> tags for deliverable {deliverable_id}, length: {len(inner_content)}")
+            
+            # 模拟工具输出格式调用保存逻辑
+            pseudo_msg = {
+                "name": "ai_section_generation",
+                "content": json.dumps({
+                    "operation": "content_generated",
+                    "content": inner_content
+                }),
+                "tool_call_id": f"ai_section_{ai_msg.id}"
+            }
+            await _save_tool_message(conv_mgr, thread_id, pseudo_msg, config_dict)
+            
+    except Exception as e:
+        logger.error(f"Error processing AI extra content: {e}")
+        logger.error(traceback.format_exc())
+
+
 async def save_messages_from_langgraph_state(
     agent_instance,
     thread_id,
@@ -274,16 +605,23 @@ async def save_messages_from_langgraph_state(
         existing_ids = await _get_existing_message_ids(conv_mgr, thread_id)
 
         for msg in messages:
+            # 添加空值检查
+            if msg is None:
+                logger.warning("Skipping None message in LangGraph state")
+                continue
+
             msg_dict = msg.model_dump() if hasattr(msg, "model_dump") else {}
             msg_type = msg_dict.get("type", "unknown")
 
-            if msg_type == "human" or msg.id in existing_ids:
+            msg_id = getattr(msg, 'id', None)
+            # 只有当有 ID 且已存在时才跳过；如果是人类消息也跳过（由路由单独保存）
+            if msg_type == "human" or (msg_id and msg_id in existing_ids):
                 continue
 
             if msg_type == "ai":
-                await _save_ai_message(conv_mgr, thread_id, msg_dict)
+                await _save_ai_message(conv_mgr, thread_id, msg_dict, config_dict)
             elif msg_type == "tool":
-                await _save_tool_message(conv_mgr, msg_dict)
+                await _save_tool_message(conv_mgr, thread_id, msg_dict, config_dict)
             else:
                 logger.warning(f"Unknown message type: {msg_type}, skipping")
                 continue
@@ -543,14 +881,33 @@ async def chat_agent(
         # 构造运行时配置，如果没有thread_id则生成一个
         user_id = str(current_user.id)
         thread_id = config.get("thread_id")
-        input_context = {"user_id": user_id, "thread_id": thread_id}
-
+        
+        # 从 meta 中提取 context（如果有）
+        input_context = meta.get("context", {})
+        if not isinstance(input_context, dict):
+            input_context = {}
+            
         if not thread_id:
             thread_id = str(uuid.uuid4())
             logger.warning(f"No thread_id provided, generated new thread_id: {thread_id}")
 
+        # 注入基础字段
+        input_context.update({"user_id": user_id, "thread_id": thread_id})
+
         # Initialize conversation manager
         conv_manager = ConversationManager(db)
+
+        # 确保会话记录存在
+        conversation = await conv_manager.get_conversation_by_thread_id(thread_id)
+        if not conversation:
+            logger.info(f"Conversation not found for thread_id {thread_id}, creating new one")
+            await conv_manager.create_conversation(
+                user_id=user_id,
+                agent_id=agent_id,
+                title=query[:50] + ("..." if len(query) > 50 else ""),
+                thread_id=thread_id,
+                metadata=input_context
+            )
 
         # Save user message
         try:
@@ -591,16 +948,41 @@ async def chat_agent(
 
                 else:
                     msg_dict = msg.model_dump()
+                    msg_type = msg_dict.get("type")
                     yield make_chunk(msg=msg_dict, metadata=metadata, status="loading")
 
                     try:
-                        if msg_dict.get("type") == "tool":
+                        # 1. 如果是 AI 消息（非 chunk），立即保存
+                        if msg_type == "ai":
+                            await _save_ai_message(conv_manager, thread_id, msg_dict, langgraph_config)
+                            if full_msg:
+                                setattr(full_msg, "_saved", True)
+                        
+                        # 2. 如果是工具消息，确保之前的 AI 消息已保存
+                        elif msg_type == "tool":
+                            # 如果有积累的 AI 消息 chunk 且尚未保存，先保存它
+                            if full_msg and not getattr(full_msg, "_saved", False):
+                                ai_msg_dict = full_msg.model_dump()
+                                # 补充 tool_calls，因为 AIMessageChunk 可能只包含 tool_call_chunks
+                                if not ai_msg_dict.get("tool_calls") and hasattr(full_msg, "tool_calls"):
+                                    ai_msg_dict["tool_calls"] = full_msg.tool_calls
+                                
+                                await _save_ai_message(conv_manager, thread_id, ai_msg_dict, langgraph_config)
+                                setattr(full_msg, "_saved", True)
+                            
+                            # 立即尝试同步状态，作为兜底
+                            await save_messages_from_langgraph_state(agent, thread_id, conv_manager, langgraph_config)
+                            
+                            # 保存工具消息及其副作用
+                            await _save_tool_message(conv_manager, thread_id, msg_dict, langgraph_config)
+                            
                             graph = await agent.get_graph()
                             state = await graph.aget_state(langgraph_config)
                             agent_state = _extract_agent_state(getattr(state, "values", {})) if state else {}
                             if agent_state:
                                 yield make_chunk(status="agent_state", agent_state=agent_state, meta=meta)
-                    except Exception:
+                    except Exception as e:
+                        logger.error(f"Error processing tool message in stream: {e}")
                         pass
 
             if (

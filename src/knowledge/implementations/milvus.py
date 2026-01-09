@@ -191,7 +191,8 @@ class MilvusKB(KnowledgeBase):
     def _get_async_embedding_function(self, embed_info: dict):
         """获取 embedding 函数"""
         embedding_model = self._get_async_embedding(embed_info)
-        return partial(embedding_model.abatch_encode, batch_size=40)
+        # Use the model's preferred batch size instead of hardcoded 40
+        return partial(embedding_model.abatch_encode, batch_size=embedding_model.max_batch_size)
 
     def _get_embedding_function(self, embed_info: dict):
         """获取 embedding 函数"""
@@ -457,12 +458,24 @@ class MilvusKB(KnowledgeBase):
             embedding_function = self._get_embedding_function(embed_info)
             query_embedding = embedding_function([query_text])
 
+            # 构建过滤表达式
+            expr = None
+            file_ids = kwargs.get("file_ids")
+            if file_ids and isinstance(file_ids, list):
+                # 过滤掉非字符串类型的 ID 并确保不为空
+                valid_file_ids = [str(fid) for fid in file_ids if fid]
+                if valid_file_ids:
+                    # Milvus 使用 in 语法进行列表过滤
+                    expr = f"file_id in {valid_file_ids}"
+                    logger.debug(f"Milvus query filter expression: {expr}")
+
             search_params = {"metric_type": metric_type, "params": {"nprobe": 10}}
             results = collection.search(
                 data=query_embedding,
                 anns_field="embedding",
                 param=search_params,
                 limit=recall_top_k,
+                expr=expr,
                 output_fields=["content", "source", "chunk_id", "file_id", "chunk_index"],
             )
 

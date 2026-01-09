@@ -17,12 +17,18 @@ class AttachmentState(AgentState):
     attachments: NotRequired[list[dict]]
 
 
+# 单个会话中所有附件合并后的最大字符限制
+# 设为 64k 字符，防止占用过多上下文空间
+MAX_TOTAL_ATTACHMENT_CHARS = 64000
+
 def _build_attachment_prompt(attachments: Sequence[dict]) -> str | None:
     """Render attachments into a single system prompt block."""
     if not attachments:
         return None
 
     chunks: list[str] = []
+    current_chars = 0
+    
     for idx, attachment in enumerate(attachments, 1):
         if attachment.get("status") != "parsed":
             continue
@@ -32,9 +38,27 @@ def _build_attachment_prompt(attachments: Sequence[dict]) -> str | None:
             continue
 
         file_name = attachment.get("file_name") or f"附件 {idx}"
-        truncated = "（已截断）" if attachment.get("truncated") else ""
-        header = f"### 附件 {idx}: {file_name}{truncated}"
-        chunks.append(f"{header}\n\n{markdown}".strip())
+        
+        # 如果已经超出总配额，则跳过后续附件
+        if current_chars >= MAX_TOTAL_ATTACHMENT_CHARS:
+            logger.warning(f"Attachment '{file_name}' skipped due to total size limit.")
+            continue
+
+        # 计算剩余配额
+        remaining_quota = MAX_TOTAL_ATTACHMENT_CHARS - current_chars
+        
+        # 如果单个附件过长，进行截断
+        is_truncated = attachment.get("truncated", False)
+        if len(markdown) > remaining_quota:
+            markdown = markdown[:remaining_quota] + "\n... (附件内容过长已截断) ..."
+            is_truncated = True
+        
+        truncated_label = "（已截断）" if is_truncated else ""
+        header = f"### 附件 {idx}: {file_name}{truncated_label}"
+        chunk = f"{header}\n\n{markdown}".strip()
+        
+        chunks.append(chunk)
+        current_chars += len(chunk)
 
     if not chunks:
         return None

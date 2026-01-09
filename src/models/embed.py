@@ -27,6 +27,7 @@ class BaseEmbeddingModel(ABC):
         self.base_url = get_docker_safe_url(base_url)
         self.api_key = os.getenv(api_key, api_key)
         self.embed_state = {}
+        self.max_batch_size = 40  # Default batch size
 
     @abstractmethod
     def encode(self, message: list[str] | str) -> list[list[float]]:
@@ -46,8 +47,9 @@ class BaseEmbeddingModel(ABC):
         """等同于aencode"""
         return await self.aencode(queries)
 
-    def batch_encode(self, messages: list[str], batch_size: int = 40) -> list[list[float]]:
+    def batch_encode(self, messages: list[str], batch_size: int = None) -> list[list[float]]:
         # logger.info(f"Batch encoding {len(messages)} messages")
+        batch_size = batch_size or self.max_batch_size
         data = []
         task_id = None
         if len(messages) > batch_size:
@@ -67,7 +69,8 @@ class BaseEmbeddingModel(ABC):
 
         return data
 
-    async def abatch_encode(self, messages: list[str], batch_size: int = 40) -> list[list[float]]:
+    async def abatch_encode(self, messages: list[str], batch_size: int = None) -> list[list[float]]:
+        batch_size = batch_size or self.max_batch_size
         data = []
         task_id = None
         if len(messages) > batch_size:
@@ -155,9 +158,14 @@ class OtherEmbedding(BaseEmbeddingModel):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        # DashScope text-embedding-v4 has a batch size limit of 10
+        if self.model and "text-embedding" in self.model and "dashscope" in (kwargs.get("model_id") or ""):
+            self.max_batch_size = 10
+        elif self.model and "text-embedding-v" in self.model: # Aliyun dashscope compatible mode
+            self.max_batch_size = 10
 
     def build_payload(self, message: list[str] | str) -> dict:
-        return {"model": self.model, "input": message}
+        return {"model": self.model, "input": message, "encoding_format": "float"}
 
     def encode(self, message: list[str] | str) -> list[list[float]]:
         payload = self.build_payload(message)
@@ -177,6 +185,12 @@ class OtherEmbedding(BaseEmbeddingModel):
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.post(self.base_url, json=payload, headers=self.headers, timeout=60)
+                if response.status_code != 200:
+                    try:
+                        error_detail = response.json()
+                        logger.error(f"Other Embedding API error: {response.status_code}, detail: {error_detail}, payload: {payload}")
+                    except Exception:
+                        logger.error(f"Other Embedding API error: {response.status_code}, payload: {payload}")
                 response.raise_for_status()
                 result = response.json()
                 if not isinstance(result, dict) or "data" not in result:
@@ -184,6 +198,8 @@ class OtherEmbedding(BaseEmbeddingModel):
                 return [item["embedding"] for item in result["data"]]
             except (httpx.RequestError, json.JSONDecodeError) as e:
                 raise ValueError(f"Other Embedding async request failed: {e}, {payload}, {self.base_url=}")
+            except httpx.HTTPStatusError as e:
+                raise ValueError(f"Other Embedding HTTP status error: {e.response.status_code}, {e.response.text}, {payload}")
 
 
 async def test_embedding_model_status(model_id: str) -> dict:

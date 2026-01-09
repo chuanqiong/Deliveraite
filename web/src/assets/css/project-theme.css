@@ -1,0 +1,476 @@
+/* 德勤绿主题样式文件 */
+
+/* 颜色变量定义 */
+:root {
+  /* 主色调 - 德勤绿 */
+  --deloitte-green: #86BC25;
+  --deloitte-green-light: #A0D64E;
+  --deloitte-green-lighter: #B9E17B;
+  --deloitte-green-dark: #6A9C1E;
+  
+  /* 辅助色 */
+  --deloitte-blue: #0077C8;
+  --deloitte-orange: #FF7D00;
+  --deloitte-purple: #7A43B6;
+  --deloitte-red: #D11243;
+  
+  /* 中性色 */
+  --deloitte-white: #FFFFFF;
+  --deloitte-gray-50: #F8F9FA;
+  --deloitte-gray-100: #F0F0F0;
+  --deloitte-gray-200: #E0E0E0;
+  --deloitte-gray-300: #C0C0C0;
+  --deloitte-gray-400: #9E9E9E;
+  --deloitte-gray-500: #666666;
+  --deloitte-gray-600: #333333;
+  --deloitte-gray-700: #222222;
+  --deloitte-gray-800: #1A1A1A;
+  --deloitte-gray-900: #111111;
+  
+  /* 状态色 */
+  --deloitte-success: #86BC25;
+  --deloitte-warning: #FF7D00;
+  --deloitte-error: #D11243;
+  --deloitte-info: #0077C8;
+  
+  /* 透明度 */
+  --deloitte-opacity-10: rgba(134, 188, 37, 0.1);
+  --deloitte-opacity-20: rgba(134, 188, 37, 0.2);
+  --deloitte-opacity-30: rgba(134, 188, 37, 0.3);
+  --deloitte-opacity-40: rgba(134, 188, 37, 0.4);
+  --deloitte-opacity-50: rgba(134, 188, 37, 0.5);
+}
+
+/* 全局样式 */
+body {
+  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  color: var(--deloitte-gray-600);
+  background: var(--deloitte-gray-50);
+}
+
+/* 按钮样式 */
+.btn-deloitte {
+  background: var(--deloitte-green);
+  color: var(--deloitte-white);
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-deloitte:hover {
+  background: var(--deloitte-green-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 102, 79, 0.2);
+}
+
+.btn-deloitte:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(0, 102, 79, 0.2);
+}
+
+.btn-deloitte:disabled {
+  background: var(--deloitte-gray-200);
+  color: var(--deloitte-gray-400);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* 卡片样式 */
+.card-deloitte {
+  background: var(--deloitte-white);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+}
+
+.card-deloitte:hover {
+  box-shadow: 0 4px 16px rgba(0, 102, 79, 0.1);
+  border: 1px solid var(--deloitte-green);
+}
+
+/* 表单样式 */
+.form-input-deloitte {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--deloitte-gray-200);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  transition: all 0.3s ease;
+}
+
+.form-input-deloitte:focus {
+  outline: none;
+  border-color: var(--deloitte-green);
+  box-shadow: 0 0 0 2px rgba(0, 102, 79, 0.1);
+}
+
+/* 进度条样式 */
+.progress-bar-deloitte {
+  height: 8px;
+  background: var(--deloitte-gray-100);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill-deloitte {
+  height: 100%;
+  background: linear-gradient(90deg, var(--deloitte-green) 0%, var(--deloitte-green-lighter) 100%);
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
+/* 状态徽章 */
+.badge-deloitte {
+  display: inline-block;
+  padding: 0.3rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.badge-deloitte.success {
+  background: rgba(0, 168, 125, 0.1);
+  color: var(--deloitte-success);
+}
+
+.badge-deloitte.warning {
+  background: rgba(255, 125, 0, 0.1);
+  color: var(--deloitte-warning);
+}
+
+.badge-deloitte.error {
+  background: rgba(209, 18, 67, 0.1);
+  color: var(--deloitte-error);
+}
+
+.badge-deloitte.info {
+  background: rgba(0, 119, 200, 0.1);
+  color: var(--deloitte-info);
+}
+
+/* 导航栏样式 */
+.navbar-deloitte {
+  background: var(--deloitte-white);
+  border-bottom: 1px solid var(--deloitte-gray-200);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* 侧边栏样式 */
+.sidebar-deloitte {
+  background: var(--deloitte-white);
+  border-right: 1px solid var(--deloitte-gray-200);
+}
+
+/* 表格样式 */
+.table-deloitte {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--deloitte-white);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.table-deloitte th {
+  background: var(--deloitte-green);
+  color: var(--deloitte-white);
+  padding: 1rem;
+  text-align: left;
+  font-weight: 600;
+}
+
+.table-deloitte td {
+  padding: 1rem;
+  border-bottom: 1px solid var(--deloitte-gray-100);
+}
+
+.table-deloitte tr:hover {
+  background: var(--deloitte-gray-50);
+}
+
+/* 卡片网格布局 */
+.grid-deloitte {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .grid-deloitte {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 动画效果 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.5s ease;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+/* 阴影效果 */
+.shadow-deloitte {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.shadow-deloitte-hover {
+  box-shadow: 0 4px 16px rgba(0, 102, 79, 0.1);
+}
+
+/* 文本样式 */
+.text-deloitte-green {
+  color: var(--deloitte-green);
+}
+
+.text-deloitte-green-light {
+  color: var(--deloitte-green-light);
+}
+
+.text-deloitte-green-lighter {
+  color: var(--deloitte-green-lighter);
+}
+
+.text-deloitte-gray {
+  color: var(--deloitte-gray-500);
+}
+
+.text-deloitte-gray-dark {
+  color: var(--deloitte-gray-600);
+}
+
+/* 背景样式 */
+.bg-deloitte-green {
+  background: var(--deloitte-green);
+  color: var(--deloitte-white);
+}
+
+.bg-deloitte-green-light {
+  background: var(--deloitte-green-light);
+  color: var(--deloitte-white);
+}
+
+.bg-deloitte-green-lighter {
+  background: var(--deloitte-green-lighter);
+  color: var(--deloitte-white);
+}
+
+.bg-deloitte-gray-50 {
+  background: var(--deloitte-gray-50);
+}
+
+.bg-deloitte-gray-100 {
+  background: var(--deloitte-gray-100);
+}
+
+/* 边框样式 */
+.border-deloitte-green {
+  border: 1px solid var(--deloitte-green);
+}
+
+.border-deloitte-gray {
+  border: 1px solid var(--deloitte-gray-200);
+}
+
+/* 圆角样式 */
+.rounded-deloitte {
+  border-radius: 8px;
+}
+
+.rounded-deloitte-lg {
+  border-radius: 12px;
+}
+
+.rounded-deloitte-xl {
+  border-radius: 16px;
+}
+
+/* 间距样式 */
+.mt-deloitte {
+  margin-top: 1rem;
+}
+
+.mb-deloitte {
+  margin-bottom: 1rem;
+}
+
+.p-deloitte {
+  padding: 1rem;
+}
+
+.p-deloitte-lg {
+  padding: 1.5rem;
+}
+
+.p-deloitte-xl {
+  padding: 2rem;
+}
+
+/* 按钮组 */
+.btn-group-deloitte {
+  display: flex;
+  gap: 0.75rem;
+}
+
+/* 工具类 */
+.flex-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.flex-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.text-left {
+  text-align: left;
+}
+
+.text-right {
+  text-align: right;
+}
+
+/* 响应式工具 */
+@media (max-width: 768px) {
+  .flex-md-column {
+    flex-direction: column;
+  }
+  
+  .grid-md-1 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 加载动画 */
+.loading-deloitte {
+  width: 40px;
+  height: 40px;
+  border: 4px solid var(--deloitte-gray-100);
+  border-top: 4px solid var(--deloitte-green);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* 空状态 */
+.empty-state-deloitte {
+  text-align: center;
+  padding: 4rem 2rem;
+  background: var(--deloitte-white);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.empty-state-deloitte svg {
+  margin-bottom: 1rem;
+  color: var(--deloitte-gray-300);
+}
+
+.empty-state-deloitte h3 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--deloitte-green);
+  margin: 0 0 0.5rem 0;
+}
+
+.empty-state-deloitte p {
+  font-size: 0.9rem;
+  color: var(--deloitte-gray-500);
+  margin: 0 0 1.5rem 0;
+}
+
+/* 搜索框 */
+.search-box-deloitte {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-input-deloitte {
+  padding: 0.75rem 2.5rem 0.75rem 1rem;
+  border: 1px solid var(--deloitte-gray-200);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  width: 250px;
+  transition: all 0.3s ease;
+}
+
+.search-input-deloitte:focus {
+  outline: none;
+  border-color: var(--deloitte-green);
+  box-shadow: 0 0 0 2px rgba(0, 102, 79, 0.1);
+}
+
+.search-box-deloitte svg {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--deloitte-gray-400);
+}
+
+/* 视图切换 */
+.view-toggle-deloitte {
+  display: flex;
+  gap: 0.25rem;
+  background: var(--deloitte-gray-100);
+  border-radius: 8px;
+  padding: 0.25rem;
+}
+
+.view-button-deloitte {
+  background: transparent;
+  border: none;
+  padding: 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--deloitte-gray-500);
+  transition: all 0.3s ease;
+}
+
+.view-button-deloitte:hover {
+  background: var(--deloitte-gray-200);
+}
+
+.view-button-deloitte.active {
+  background: var(--deloitte-green);
+  color: var(--deloitte-white);
+}

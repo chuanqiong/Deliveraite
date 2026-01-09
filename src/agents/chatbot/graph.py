@@ -8,6 +8,8 @@ from src.agents.common.middlewares import (
     context_aware_prompt,
     context_based_model,
     inject_attachment_context,
+    logging_middleware,
+    token_trimming_middleware,
 )
 from src.agents.common.subagents import calc_agent_tool
 
@@ -32,7 +34,7 @@ class ChatbotAgent(BaseAgent):
         base_tools.append(calc_agent_tool)
         return base_tools
 
-    async def get_graph(self, **kwargs):
+    async def get_graph(self, input_context=None, **kwargs):
         """构建图"""
         if self.graph:
             return self.graph
@@ -54,7 +56,9 @@ class ChatbotAgent(BaseAgent):
                 inject_attachment_context,  # 附件上下文注入（LangChain 标准中间件）
                 context_based_model,  # 动态模型选择
                 dynamic_tool_middleware,  # 动态工具选择（支持 MCP 工具注册）
+                token_trimming_middleware,  # 消息历史修剪 (防止超出上下文限制)
                 ModelRetryMiddleware(),  # 模型重试中间件
+                logging_middleware,  # 日志中间件
             ],
             checkpointer=await self._get_checkpointer(),
         )

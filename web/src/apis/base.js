@@ -1,5 +1,6 @@
 import { useUserStore, checkAdminPermission, checkSuperAdminPermission } from '@/stores/user'
 import { message } from 'ant-design-vue'
+import { getTraceId } from '@/utils/logger'
 
 /**
  * 基础API请求封装
@@ -17,11 +18,14 @@ import { message } from 'ant-design-vue'
 export async function apiRequest(url, options = {}, requiresAuth = true, responseType = 'json') {
   try {
     const isFormData = options?.body instanceof FormData
+    const traceId = getTraceId()
+
     // 默认请求配置
     const requestOptions = {
       ...options,
       headers: {
         ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
+        ...(traceId ? { 'X-Trace-Id': traceId } : {}),
         ...options.headers,
       },
     }

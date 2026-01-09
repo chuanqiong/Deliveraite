@@ -1069,19 +1069,25 @@ const handleSendMessage = async () => {
       for (const line of lines) {
         const trimmedLine = line.trim();
         if (trimmedLine) {
+          // 兼容 SSE 格式 (data: {...}) 和 纯 JSON 行格式 ({...})
+          const rawJson = trimmedLine.startsWith('data: ') 
+            ? trimmedLine.slice(6) 
+            : trimmedLine
           try {
-            const chunk = JSON.parse(trimmedLine);
+            const chunk = JSON.parse(rawJson);
             if (_processStreamChunk(chunk, threadId)) {
               stopReading = true;
               break;
             }
-          } catch (e) { console.warn('Failed to parse stream chunk JSON:', e); }
+          } catch (e) { console.warn('Failed to parse stream chunk JSON:', e, 'Line:', trimmedLine); }
         }
       }
     }
     if (!stopReading && buffer.trim()) {
+      const trimmedLine = buffer.trim();
+      const rawJson = trimmedLine.startsWith('data: ') ? trimmedLine.slice(6) : trimmedLine
       try {
-        const chunk = JSON.parse(buffer.trim());
+        const chunk = JSON.parse(rawJson);
         if (_processStreamChunk(chunk, threadId)) {
           stopReading = true;
         }
@@ -1162,8 +1168,12 @@ const handleApprovalWithStream = async (approved) => {
       for (const line of lines) {
         const trimmedLine = line.trim();
         if (trimmedLine) {
+          // 兼容 SSE 格式 (data: {...}) 和 纯 JSON 行格式 ({...})
+          const rawJson = trimmedLine.startsWith('data: ') 
+            ? trimmedLine.slice(6) 
+            : trimmedLine
           try {
-            const chunk = JSON.parse(trimmedLine);
+            const chunk = JSON.parse(rawJson);
             console.log('🔄 [STREAM] Processing chunk:', chunk);
 
             // 处理chunk并更新对话 - _processStreamChunk 已经处理了所有必要的逻辑
@@ -1180,8 +1190,10 @@ const handleApprovalWithStream = async (approved) => {
     }
 
     if (!stopReading && buffer.trim()) {
+      const trimmedLine = buffer.trim();
+      const rawJson = trimmedLine.startsWith('data: ') ? trimmedLine.slice(6) : trimmedLine
       try {
-        const chunk = JSON.parse(buffer.trim());
+        const chunk = JSON.parse(rawJson);
         console.log('🔄 [STREAM] Processing final chunk:', chunk);
 
         // 处理最终chunk - _processStreamChunk 已经处理了所有必要的逻辑
@@ -1190,7 +1202,7 @@ const handleApprovalWithStream = async (approved) => {
         }
 
       } catch (e) {
-        console.warn('Failed to parse final stream chunk JSON:', e);
+        console.warn('Failed to parse final stream chunk JSON:', e, 'Line:', trimmedLine);
       }
     }
 

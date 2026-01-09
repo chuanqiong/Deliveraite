@@ -95,7 +95,7 @@ DEFAULT_CHAT_MODEL_PROVIDERS: dict[str, ChatModelProvider] = {
         name="阿里百炼 (DashScope)",
         url="https://bailian.console.aliyun.com/?switchAgent=10226727&productCode=p_efm#/model-market",
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        default="qwen-max-latest",
+        default="qwen-max-0403",
         env="DASHSCOPE_API_KEY",
         models=[
             "qwen-max-latest",
@@ -200,12 +200,26 @@ DEFAULT_EMBED_MODELS: dict[str, EmbedModelInfo] = {
         base_url="http://localhost:11434/api/embed",
         api_key="no_api_key",
     ),
-    "dashscope/text-embedding-v4": EmbedModelInfo(
-        model_id="dashscope/text-embedding-v4",
-        name="text-embedding-v4",
+    "modelscope/Qwen/Qwen3-Embedding-8B": EmbedModelInfo(
+        model_id="modelscope/Qwen/Qwen3-Embedding-8B",
+        name="Qwen/Qwen3-Embedding-8B",
+        dimension=4096,
+        base_url="https://api-inference.modelscope.cn/v1/embeddings",
+        api_key="MODELSCOPE_ACCESS_TOKEN",
+    ),
+    "dashscope/text-embedding-v2": EmbedModelInfo(
+        model_id="dashscope/text-embedding-v2",
+        name="text-embedding-v2",
         dimension=1024,
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings",
         api_key="DASHSCOPE_API_KEY",
+    ),
+    "ark/doubao-embedding-vision-250615": EmbedModelInfo(
+        model_id="ark/doubao-embedding-vision-250615",
+        name="doubao-embedding-vision-250615",
+        dimension=1024,
+        base_url="https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal",
+        api_key="ARK_API_KEY",
     ),
 }
 

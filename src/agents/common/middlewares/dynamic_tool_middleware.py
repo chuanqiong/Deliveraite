@@ -50,6 +50,9 @@ class DynamicToolMiddleware(AgentMiddleware):
         # 根据配置筛选基础工具
         if selected_tools and isinstance(selected_tools, list) and len(selected_tools) > 0:
             enabled_tools = [tool for tool in self.tools if tool.name in selected_tools]
+        else:
+            # 如果没有指定，默认启用所有基础工具（非 MCP 工具）
+            enabled_tools = [tool for tool in self.tools if not hasattr(tool, "mcp_server")]
 
         # 根据配置筛选 MCP 工具（从已注册的工具中选择）
         if selected_mcps and isinstance(selected_mcps, list) and len(selected_mcps) > 0:

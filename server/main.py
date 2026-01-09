@@ -13,6 +13,7 @@ from server.utils.lifespan import lifespan
 from server.utils.auth_middleware import is_public_path
 from server.utils.common_utils import setup_logging
 from server.utils.access_log_middleware import AccessLogMiddleware
+from server.utils.request_id_middleware import RequestIDMiddleware
 
 # 设置日志配置
 setup_logging()
@@ -116,6 +117,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+# 添加请求ID中间件 (最先添加，以便后续中间件可以使用 trace_id)
+app.add_middleware(RequestIDMiddleware)
+
 # 添加访问日志中间件（记录请求处理时间）
 app.add_middleware(AccessLogMiddleware)
 
@@ -124,4 +128,4 @@ app.add_middleware(LoginRateLimitMiddleware)
 app.add_middleware(AuthMiddleware)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=5050, threads=10, workers=10, reload=True)
+    uvicorn.run("server.main:app", host="0.0.0.0", port=5050, workers=10, reload=True)

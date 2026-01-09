@@ -264,6 +264,19 @@ const parsedData = computed(() => {
     content = content.replace(thinkMatch[0], '').trim();
   }
 
+  // 提取 content 标签内部内容，如果不存在则使用全文
+  const contentTagMatch = content.match(/<content>([\s\S]*?)(?:<\/content>|$)/);
+  if (contentTagMatch) {
+    content = contentTagMatch[1];
+  }
+
+  // 移除 AI 生成的内容过滤标记 (兼容 Markdown 和 HTML 格式)
+  content = content
+    .replace(/---\s*[\s\S]*?📊\s*字数统计：[\s\S]*$/g, '')
+    .replace(/[#\s-]*📊\s*字数统计：[\s\S]*?(?:目标字数|实际字数|误差率)[\s\S]*?(?:\n|$)/g, '')
+    .replace(/(?:<p>|###?\s+)[^<]*AI生成[^<]*(?:<\/p>)?/gi, '')
+    .trim();
+
   return {
     content,
     reasoning_content,

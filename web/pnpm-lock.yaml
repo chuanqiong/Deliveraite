@@ -59,6 +59,12 @@ importers:
       marked-highlight:
         specifier: ^2.2.2
         version: 2.2.2(marked@16.3.0)
+      markmap-common:
+        specifier: ^0.18.9
+        version: 0.18.9
+      markmap-html-parser:
+        specifier: ^0.18.11
+        version: 0.18.11(markmap-common@0.18.9)
       markmap-lib:
         specifier: ^0.18.12
         version: 0.18.12(markmap-common@0.18.9)

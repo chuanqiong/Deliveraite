@@ -8,11 +8,19 @@ from src.storage.db.manager import db_manager  # noqa: E402
 from src.storage.db.models import (  # noqa: E402, F401
     OperationLog,
     User,
+    Project,
+    ProjectHistory,
+    ProjectDeliverable,
+    ProjectDeliverableContent,
 )  # noqa: E402
 
 __all__ = [
     "Base",
     "User",
     "OperationLog",
+    "Project",
+    "ProjectHistory",
+    "ProjectDeliverable",
+    "ProjectDeliverableContent",
     "db_manager",
 ]

@@ -625,9 +625,9 @@ class GraphDatabase:
         def query_by_vector(tx, text, threshold):
             # 首先检查索引是否存在
             if not _index_exists(tx, "entityEmbeddings"):
-                raise Exception(
-                    "向量索引不存在，请先创建索引，或当前图谱中未上传任何三元组（知识库中自动构建的，不会在此处展示和检索）。"
-                )
+                # 优雅降级：返回空结果而不是抛出异常
+                logger.info("向量索引不存在，跳过向量相似度查询，将仅使用模糊匹配")
+                return []
 
             embedding = self.get_embedding(text)
             result = tx.run(
@@ -757,7 +757,7 @@ class GraphDatabase:
 
     async def aget_embedding(self, text):
         if isinstance(text, list):
-            outputs = await self.embed_model.abatch_encode(text, batch_size=40)
+            outputs = await self.embed_model.abatch_encode(text, batch_size=self.embed_model.max_batch_size)
             return outputs
         else:
             outputs = await self.embed_model.aencode(text)
@@ -765,7 +765,7 @@ class GraphDatabase:
 
     def get_embedding(self, text):
         if isinstance(text, list):
-            outputs = self.embed_model.batch_encode(text, batch_size=40)
+            outputs = self.embed_model.batch_encode(text, batch_size=self.embed_model.max_batch_size)
             return outputs
         else:
             outputs = self.embed_model.encode([text])[0]
